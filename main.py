@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from pymongo import MongoClient
 
 # --- CONFIG ---
-app = FastAPI(title="Sudeep Music API v2.5", description="Public Mode Music API")
+app = FastAPI(title="Sudeep Music API v2.5", description="Premium Music API (Cookies Enabled)")
 
 # MongoDB Connect
 MONGO_URL = os.getenv("MONGO_URL")
@@ -29,7 +29,7 @@ CATBOX_URL = "https://catbox.moe/user/api.php"
 @app.on_event("startup")
 async def check_dependencies():
     print("\n" + "="*40)
-    print("🚀 STARTING PUBLIC MODE CHECKS...")
+    print("🚀 STARTING PREMIUM MODE CHECKS...")
     
     # 1. Check FFmpeg
     try:
@@ -43,13 +43,13 @@ async def check_dependencies():
         subprocess.run(["node", "-v"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         print("✅ Node.js is Installed & Running!")
     except Exception:
-        print("❌ WARNING: Node.js nahi mila!")
+        print("❌ WARNING: Node.js nahi mila! Speed slow ho sakti hai.")
     
-    # Cookies check (Sirf info ke liye)
+    # 3. Cookies Check
     if os.path.exists("cookies.txt"):
-        print("⚠️ NOTE: cookies.txt abhi bhi hai, par hum use nahi karenge.")
+        print("✅ Fresh cookies.txt Found! (Authentication Ready)")
     else:
-        print("✅ Public Mode Active: No cookies found (Safe & Fast)")
+        print("⚠️ cookies.txt Not Found! (Running in Public Mode)")
     
     print("="*40 + "\n")
 
@@ -72,7 +72,7 @@ def upload_to_catbox(file_path):
 # --- API ENDPOINT ---
 @app.get("/")
 def home():
-    return {"status": "Running", "mode": "Public (No Cookies)", "version": "2.5"}
+    return {"status": "Running", "mode": "Premium (Cookies + 0.0.0.0 IP)", "version": "2.5"}
 
 @app.get("/play")
 async def play_song(query: str):
@@ -80,12 +80,21 @@ async def play_song(query: str):
     # --- STEP 1: SEARCH ---
     print(f"🔎 Searching: {query}")
     
-    # 🔥 PUBLIC MODE SEARCH SETTINGS
+    # Check agar cookie file hai
+    cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
+
+    # Search Options
     ydl_opts_search = {
         'quiet': True, 
         'noplaylist': True, 
         'check_formats': False,
-        'cachedir': False  # Cache Disable
+        'cachedir': False, # Cache Disable for Freshness
+        'cookiefile': cookie_file,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'], # Hybrid Client Spoofing
+            }
+        }
     }
     
     try:
@@ -126,7 +135,7 @@ async def play_song(query: str):
     
     file_name = f"{video_id}.mp3"
     
-    # 🔥 UPDATED SETTINGS (PUBLIC MODE + FAST SPEED)
+    # 🔥 UPDATED SETTINGS (Cookies + IP 0.0.0.0)
     ydl_opts_down = {
         'format': 'bestaudio/best',
         'outtmpl': file_name,
@@ -134,10 +143,18 @@ async def play_song(query: str):
         'geo_bypass': True,
         'nocheckcertificate': True,
         
-        # 🔥 MAIN CHANGES FOR HEROKU
-        'cachedir': False,            # Purana cache clear rakhne ke liye
-        'source_address': '0.0.0.0',  # Connection stability ke liye
-        'check_formats': False,       # Warning kam karne ke liye
+        # 🔥 MAIN SETTINGS JO TUMNE MAANGI
+        'source_address': '0.0.0.0',  # Force IPv4
+        'cookiefile': cookie_file,    # Fresh Cookies Use Karo
+        'cachedir': False,            # Purana cache mat uthao
+        'check_formats': False,
+        
+        # Extra Safety (Android Client)
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+            }
+        },
         
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -169,7 +186,7 @@ async def play_song(query: str):
             "catbox_link": catbox_link,
             "thumbnail": thumbnail,
             "channel": channel,
-            "created_at": "v2.5 Public"
+            "created_at": "v2.5 Premium"
         })
         print("✅ Saved to DB!")
 
