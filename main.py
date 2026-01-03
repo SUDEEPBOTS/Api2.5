@@ -72,7 +72,7 @@ def upload_to_catbox(file_path):
 # --- API ENDPOINT ---
 @app.get("/")
 def home():
-    return {"status": "Running", "mode": "Premium (Cookies + 0.0.0.0 IP)", "version": "2.5"}
+    return {"status": "Running", "mode": "Premium (Cookies Only)", "version": "2.5"}
 
 @app.get("/play")
 async def play_song(query: str):
@@ -83,18 +83,14 @@ async def play_song(query: str):
     # Check agar cookie file hai
     cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
 
-    # Search Options
+    # Search Options (Clean - No Conflict)
     ydl_opts_search = {
         'quiet': True, 
         'noplaylist': True, 
         'check_formats': False,
         'cachedir': False, # Cache Disable for Freshness
         'cookiefile': cookie_file,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web'], # Hybrid Client Spoofing
-            }
-        }
+        # 'extractor_args' HATA DIYA (Conflict Fix)
     }
     
     try:
@@ -135,7 +131,7 @@ async def play_song(query: str):
     
     file_name = f"{video_id}.mp3"
     
-    # 🔥 UPDATED SETTINGS (Cookies + IP 0.0.0.0)
+    # 🔥 UPDATED SETTINGS (Cookies Only - No Android Spoofing)
     ydl_opts_down = {
         'format': 'bestaudio/best',
         'outtmpl': file_name,
@@ -143,18 +139,13 @@ async def play_song(query: str):
         'geo_bypass': True,
         'nocheckcertificate': True,
         
-        # 🔥 MAIN SETTINGS JO TUMNE MAANGI
+        # 🔥 PURE COOKIES MODE
         'source_address': '0.0.0.0',  # Force IPv4
-        'cookiefile': cookie_file,    # Fresh Cookies Use Karo
-        'cachedir': False,            # Purana cache mat uthao
+        'cookiefile': cookie_file,    # Asli Cookies
+        'cachedir': False,            # No Cache
         'check_formats': False,
         
-        # Extra Safety (Android Client)
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios'],
-            }
-        },
+        # ❌ 'extractor_args' HATA DIYA (Format Error Fix)
         
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
