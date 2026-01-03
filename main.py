@@ -43,7 +43,7 @@ def upload_to_catbox(file_path):
 # --- API ENDPOINT ---
 @app.get("/")
 def home():
-    return {"status": "Running", "creator": "Sudeep", "version": "2.5 (Pro)"}
+    return {"status": "Running", "creator": "Sudeep", "version": "2.5 (Super Light)"}
 
 @app.get("/play")
 async def play_song(query: str):
@@ -60,7 +60,13 @@ async def play_song(query: str):
     # Cookies check
     cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
 
-    ydl_opts_search = {'quiet': True, 'noplaylist': True, 'cookiefile': cookie_file}
+    # Search Options
+    ydl_opts_search = {
+        'quiet': True, 
+        'noplaylist': True, 
+        'cookiefile': cookie_file,
+        'check_formats': False # 🔥 Fix for Warnings
+    }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
@@ -103,6 +109,7 @@ async def play_song(query: str):
     
     file_name = f"{video_id}.mp3"
     
+    # 🔥 UPDATED SETTINGS (Size aur Speed ke liye)
     ydl_opts_down = {
         'format': 'bestaudio/best',
         'outtmpl': file_name,
@@ -110,13 +117,18 @@ async def play_song(query: str):
         'cookiefile': cookie_file,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}],
+        'check_formats': False, # 🔥 WARNING FIX
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '128', # 🔥 128kbps (Best balance for Telegram)
+        }],
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts_down) as ydl:
-            link_to_download = f"https://www.youtube.com/watch?v={video_id}"
-            ydl.download([link_to_download])
+            # Direct ID se download fast hota hai
+            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
         
         # Verify File
         if not os.path.exists(file_name):
@@ -126,8 +138,9 @@ async def play_song(query: str):
         print("☁️ Uploading to Catbox...")
         catbox_link = upload_to_catbox(file_name)
         
-        # Cleanup
-        os.remove(file_name)
+        # Cleanup (Local file delete)
+        if os.path.exists(file_name):
+            os.remove(file_name)
 
         if not catbox_link:
              return {"status": "error", "message": "Catbox upload failed"}
@@ -161,4 +174,4 @@ async def play_song(query: str):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-      
+    
