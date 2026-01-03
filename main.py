@@ -3,11 +3,11 @@ import uvicorn
 import requests
 import yt_dlp
 import subprocess
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from pymongo import MongoClient
 
 # --- CONFIG ---
-app = FastAPI(title="Sudeep Music API v2.5", description="Premium Music API (Cookies Enabled)")
+app = FastAPI(title="Sudeep Music API v2.5", description="Background Mode (Anti-Timeout)")
 
 # MongoDB Connect
 MONGO_URL = os.getenv("MONGO_URL")
@@ -25,72 +25,110 @@ except Exception as e:
 # Catbox API
 CATBOX_URL = "https://catbox.moe/user/api.php"
 
-# --- SYSTEM CHECK ON STARTUP ---
+# --- SYSTEM CHECK ---
 @app.on_event("startup")
 async def check_dependencies():
     print("\n" + "="*40)
-    print("🚀 STARTING PREMIUM MODE CHECKS...")
-    
-    # 1. Check FFmpeg
+    print("🚀 STARTING BACKGROUND MODE...")
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        print("✅ FFmpeg is Installed & Running!")
-    except Exception:
-        print("❌ CRITICAL: FFmpeg nahi mila! Buildpack check karo.")
-
-    # 2. Check Node.js
-    try:
-        subprocess.run(["node", "-v"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        print("✅ Node.js is Installed & Running!")
-    except Exception:
-        print("❌ WARNING: Node.js nahi mila! Speed slow ho sakti hai.")
+        print("✅ FFmpeg Running!")
+    except:
+        print("❌ CRITICAL: FFmpeg missing!")
     
-    # 3. Cookies Check
     if os.path.exists("cookies.txt"):
-        print("✅ Fresh cookies.txt Found! (Authentication Ready)")
+        print("✅ Cookies Found! (Premium Access)")
     else:
-        print("⚠️ cookies.txt Not Found! (Running in Public Mode)")
-    
+        print("⚠️ Cookies Not Found! (Public Mode)")
     print("="*40 + "\n")
 
-# --- HELPER: UPLOAD ---
-def upload_to_catbox(file_path):
+# --- BACKGROUND TASK FUNCTION ---
+# Ye function chupke se peeche chalega
+def process_background_download(video_id, title, thumbnail, channel):
+    print(f"⏳ Background Task Started: {title}")
+    
+    file_name = f"{video_id}.mp3"
+    cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
+
+    # 🔥 TURBO SETTINGS (Fast Download & Upload)
+    ydl_opts_down = {
+        'format': 'bestaudio/best',
+        'outtmpl': file_name,
+        'quiet': True,
+        'geo_bypass': True,
+        'nocheckcertificate': True,
+        'source_address': '0.0.0.0',
+        'cookiefile': cookie_file,
+        'cachedir': False,
+        'check_formats': False,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '64', # 64kbps for Ultra Speed
+        }],
+    }
+
     try:
+        # 1. Download
+        with yt_dlp.YoutubeDL(ydl_opts_down) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+        
+        if not os.path.exists(file_name):
+            print("❌ Download Failed in Background")
+            return
+
+        # 2. Upload to Catbox
+        print("☁️ Uploading to Catbox...")
         data = {"reqtype": "fileupload", "userhash": ""}
-        with open(file_path, "rb") as f:
+        catbox_link = None
+        
+        with open(file_name, "rb") as f:
             files = {"fileToUpload": f}
             response = requests.post(CATBOX_URL, data=data, files=files)
+            if response.status_code == 200 and "catbox.moe" in response.text:
+                catbox_link = response.text.strip()
         
-        if response.status_code == 200 and "catbox.moe" in response.text:
-            return response.text.strip()
-        else:
-            return None
+        # Cleanup
+        if os.path.exists(file_name):
+            os.remove(file_name)
+
+        if not catbox_link:
+            print("❌ Upload Failed")
+            return
+
+        # 3. Save to DB
+        cache_col.insert_one({
+            "video_id": video_id,
+            "title": title,
+            "catbox_link": catbox_link,
+            "thumbnail": thumbnail,
+            "channel": channel,
+            "created_at": "v2.5 Background"
+        })
+        print(f"✅ Background Task Completed: {title}")
+
     except Exception as e:
-        print(f"Upload Error: {e}")
-        return None
+        print(f"❌ Background Error: {e}")
+        if os.path.exists(file_name): os.remove(file_name)
 
 # --- API ENDPOINT ---
 @app.get("/")
 def home():
-    return {"status": "Running", "mode": "Premium (Cookies Only)", "version": "2.5"}
+    return {"status": "Running", "mode": "Background Async", "version": "2.5"}
 
 @app.get("/play")
-async def play_song(query: str):
+async def play_song(query: str, background_tasks: BackgroundTasks):
     
-    # --- STEP 1: SEARCH ---
     print(f"🔎 Searching: {query}")
-    
-    # Check agar cookie file hai
     cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
 
-    # Search Options (Clean - No Conflict)
+    # 1. SEARCH ONLY (Fast)
     ydl_opts_search = {
         'quiet': True, 
         'noplaylist': True, 
         'check_formats': False,
-        'cachedir': False, # Cache Disable for Freshness
-        'cookiefile': cookie_file,
-        # 'extractor_args' HATA DIYA (Conflict Fix)
+        'cachedir': False,
+        'cookiefile': cookie_file
     }
     
     try:
@@ -105,13 +143,13 @@ async def play_song(query: str):
             duration = info.get('duration_string', 'Unknown')
             thumbnail = info.get('thumbnail')
             channel = info.get('uploader')
-            views = info.get('view_count')
             
     except Exception as e:
         return {"status": "error", "message": f"Song nahi mila: {str(e)}"}
 
-    # --- STEP 2: CACHE CHECK ---
+    # 2. CACHE CHECK (Instant Result)
     cached_song = cache_col.find_one({"video_id": video_id})
+    
     if cached_song:
         print(f"🚀 Cache Hit: {title}")
         return {
@@ -121,81 +159,21 @@ async def play_song(query: str):
             "url": cached_song['catbox_link'],
             "thumbnail": cached_song.get('thumbnail', thumbnail),
             "duration": duration,
-            "channel": channel,
-            "views": views,
             "video_id": video_id
         }
 
-    # --- STEP 3: DOWNLOAD & UPLOAD ---
-    print(f"⬇️ Downloading New: {title}")
+    # 3. IF NOT FOUND -> START BACKGROUND TASK
+    print(f"⚠️ Cache Miss. Starting Background Process for: {title}")
     
-    file_name = f"{video_id}.mp3"
-    
-    # 🔥 UPDATED SETTINGS (Cookies Only - No Android Spoofing)
-    ydl_opts_down = {
-        'format': 'bestaudio/best',
-        'outtmpl': file_name,
-        'quiet': True,
-        'geo_bypass': True,
-        'nocheckcertificate': True,
-        
-        # 🔥 PURE COOKIES MODE
-        'source_address': '0.0.0.0',  # Force IPv4
-        'cookiefile': cookie_file,    # Asli Cookies
-        'cachedir': False,            # No Cache
-        'check_formats': False,
-        
-        # ❌ 'extractor_args' HATA DIYA (Format Error Fix)
-        
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '128',
-        }],
+    # Ye line magic karegi: Function ko background mein daal degi
+    background_tasks.add_task(process_background_download, video_id, title, thumbnail, channel)
+
+    return {
+        "status": "processing",
+        "message": "Song processing started in background. Please ask again in 30 seconds.",
+        "title": title,
+        "eta": "30-60 seconds"
     }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts_down) as ydl:
-            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
-        
-        if not os.path.exists(file_name):
-             return {"status": "error", "message": "Download failed (File not created)"}
-
-        print("☁️ Uploading to Catbox...")
-        catbox_link = upload_to_catbox(file_name)
-        
-        if os.path.exists(file_name):
-            os.remove(file_name)
-
-        if not catbox_link:
-             return {"status": "error", "message": "Catbox upload failed"}
-
-        # --- STEP 4: SAVE TO DB ---
-        cache_col.insert_one({
-            "video_id": video_id,
-            "title": title,
-            "catbox_link": catbox_link,
-            "thumbnail": thumbnail,
-            "channel": channel,
-            "created_at": "v2.5 Premium"
-        })
-        print("✅ Saved to DB!")
-
-        return {
-            "status": "success",
-            "source": "live_processed",
-            "title": title,
-            "url": catbox_link,
-            "thumbnail": thumbnail,
-            "duration": duration,
-            "channel": channel,
-            "views": views,
-            "video_id": video_id
-        }
-
-    except Exception as e:
-        if os.path.exists(file_name): os.remove(file_name)
-        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
