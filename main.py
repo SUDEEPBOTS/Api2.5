@@ -2,12 +2,12 @@ import os
 import uvicorn
 import requests
 import yt_dlp
-import subprocess  # System check ke liye
+import subprocess
 from fastapi import FastAPI
 from pymongo import MongoClient
 
 # --- CONFIG ---
-app = FastAPI(title="Sudeep Music API v2.5", description="Ultra Fast Cached Music API")
+app = FastAPI(title="Sudeep Music API v2.5", description="Public Mode Music API")
 
 # MongoDB Connect
 MONGO_URL = os.getenv("MONGO_URL")
@@ -25,35 +25,35 @@ except Exception as e:
 # Catbox API
 CATBOX_URL = "https://catbox.moe/user/api.php"
 
-# --- SYSTEM CHECK ON STARTUP (Ye hai wo feature jo tumne manga) ---
+# --- SYSTEM CHECK ON STARTUP ---
 @app.on_event("startup")
 async def check_dependencies():
     print("\n" + "="*40)
-    print("🚀 STARTING SYSTEM CHECKS...")
+    print("🚀 STARTING PUBLIC MODE CHECKS...")
     
     # 1. Check FFmpeg
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        print("✅ FFmpeg is Installed & Running! (MP3 Convert hoga)")
+        print("✅ FFmpeg is Installed & Running!")
     except Exception:
-        print("❌ CRITICAL ERROR: FFmpeg nahi mila! Buildpack check karo.")
+        print("❌ CRITICAL: FFmpeg nahi mila! Buildpack check karo.")
 
     # 2. Check Node.js
     try:
         subprocess.run(["node", "-v"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        print("✅ Node.js is Installed & Running! (High Speed enabled)")
+        print("✅ Node.js is Installed & Running!")
     except Exception:
-        print("❌ WARNING: Node.js nahi mila! YouTube Slow ho sakta hai. 'package.json' check karo.")
-
-    # 3. Check Cookies
+        print("❌ WARNING: Node.js nahi mila!")
+    
+    # Cookies check (Sirf info ke liye)
     if os.path.exists("cookies.txt"):
-        print("✅ cookies.txt Found! (Premium Access)")
+        print("⚠️ NOTE: cookies.txt abhi bhi hai, par hum use nahi karenge.")
     else:
-        print("⚠️ cookies.txt Not Found! (Using Public Mode)")
+        print("✅ Public Mode Active: No cookies found (Safe & Fast)")
     
     print("="*40 + "\n")
 
-# --- HELPER: UPLOAD TO CATBOX ---
+# --- HELPER: UPLOAD ---
 def upload_to_catbox(file_path):
     try:
         data = {"reqtype": "fileupload", "userhash": ""}
@@ -72,7 +72,7 @@ def upload_to_catbox(file_path):
 # --- API ENDPOINT ---
 @app.get("/")
 def home():
-    return {"status": "Running", "creator": "Sudeep", "version": "2.5 (Checked)"}
+    return {"status": "Running", "mode": "Public (No Cookies)", "version": "2.5"}
 
 @app.get("/play")
 async def play_song(query: str):
@@ -80,14 +80,12 @@ async def play_song(query: str):
     # --- STEP 1: SEARCH ---
     print(f"🔎 Searching: {query}")
     
-    cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
-
-    # Search Options
+    # 🔥 PUBLIC MODE SEARCH SETTINGS
     ydl_opts_search = {
         'quiet': True, 
         'noplaylist': True, 
-        'cookiefile': cookie_file,
-        'check_formats': False 
+        'check_formats': False,
+        'cachedir': False  # Cache Disable
     }
     
     try:
@@ -128,19 +126,23 @@ async def play_song(query: str):
     
     file_name = f"{video_id}.mp3"
     
-    # 🔥 UPDATED SETTINGS (Force Audio + Small Size)
+    # 🔥 UPDATED SETTINGS (PUBLIC MODE + FAST SPEED)
     ydl_opts_down = {
         'format': 'bestaudio/best',
         'outtmpl': file_name,
         'quiet': True,
-        'cookiefile': cookie_file,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'check_formats': False, 
+        
+        # 🔥 MAIN CHANGES FOR HEROKU
+        'cachedir': False,            # Purana cache clear rakhne ke liye
+        'source_address': '0.0.0.0',  # Connection stability ke liye
+        'check_formats': False,       # Warning kam karne ke liye
+        
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '128', # 3-5 MB File Size
+            'preferredquality': '128',
         }],
     }
 
@@ -167,7 +169,7 @@ async def play_song(query: str):
             "catbox_link": catbox_link,
             "thumbnail": thumbnail,
             "channel": channel,
-            "created_at": "v2.5"
+            "created_at": "v2.5 Public"
         })
         print("✅ Saved to DB!")
 
