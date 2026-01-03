@@ -2,6 +2,7 @@ import os
 import uvicorn
 import requests
 import yt_dlp
+import subprocess  # System check ke liye
 from fastapi import FastAPI
 from pymongo import MongoClient
 
@@ -24,6 +25,34 @@ except Exception as e:
 # Catbox API
 CATBOX_URL = "https://catbox.moe/user/api.php"
 
+# --- SYSTEM CHECK ON STARTUP (Ye hai wo feature jo tumne manga) ---
+@app.on_event("startup")
+async def check_dependencies():
+    print("\n" + "="*40)
+    print("🚀 STARTING SYSTEM CHECKS...")
+    
+    # 1. Check FFmpeg
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        print("✅ FFmpeg is Installed & Running! (MP3 Convert hoga)")
+    except Exception:
+        print("❌ CRITICAL ERROR: FFmpeg nahi mila! Buildpack check karo.")
+
+    # 2. Check Node.js
+    try:
+        subprocess.run(["node", "-v"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        print("✅ Node.js is Installed & Running! (High Speed enabled)")
+    except Exception:
+        print("❌ WARNING: Node.js nahi mila! YouTube Slow ho sakta hai. 'package.json' check karo.")
+
+    # 3. Check Cookies
+    if os.path.exists("cookies.txt"):
+        print("✅ cookies.txt Found! (Premium Access)")
+    else:
+        print("⚠️ cookies.txt Not Found! (Using Public Mode)")
+    
+    print("="*40 + "\n")
+
 # --- HELPER: UPLOAD TO CATBOX ---
 def upload_to_catbox(file_path):
     try:
@@ -43,21 +72,14 @@ def upload_to_catbox(file_path):
 # --- API ENDPOINT ---
 @app.get("/")
 def home():
-    return {"status": "Running", "creator": "Sudeep", "version": "2.5 (Super Light)"}
+    return {"status": "Running", "creator": "Sudeep", "version": "2.5 (Checked)"}
 
 @app.get("/play")
 async def play_song(query: str):
-    """
-    Logic: 
-    1. YouTube ID Nikalo 
-    2. DB Check Karo 
-    3. Download -> Upload -> Save
-    """
     
-    # --- STEP 1: SEARCH & GET INFO ---
+    # --- STEP 1: SEARCH ---
     print(f"🔎 Searching: {query}")
     
-    # Cookies check
     cookie_file = 'cookies.txt' if os.path.exists('cookies.txt') else None
 
     # Search Options
@@ -65,7 +87,7 @@ async def play_song(query: str):
         'quiet': True, 
         'noplaylist': True, 
         'cookiefile': cookie_file,
-        'check_formats': False # 🔥 Fix for Warnings
+        'check_formats': False 
     }
     
     try:
@@ -73,10 +95,8 @@ async def play_song(query: str):
             if "http" in query:
                 info = ydl.extract_info(query, download=False)
             else:
-                # Search karo aur pehla result lo
                 info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
             
-            # Data Extraction
             video_id = info['id']
             title = info['title']
             duration = info.get('duration_string', 'Unknown')
@@ -87,9 +107,8 @@ async def play_song(query: str):
     except Exception as e:
         return {"status": "error", "message": f"Song nahi mila: {str(e)}"}
 
-    # --- STEP 2: CACHE CHECK (DATABASE) ---
+    # --- STEP 2: CACHE CHECK ---
     cached_song = cache_col.find_one({"video_id": video_id})
-    
     if cached_song:
         print(f"🚀 Cache Hit: {title}")
         return {
@@ -104,12 +123,12 @@ async def play_song(query: str):
             "video_id": video_id
         }
 
-    # --- STEP 3: DOWNLOAD & UPLOAD (NEW SONG) ---
+    # --- STEP 3: DOWNLOAD & UPLOAD ---
     print(f"⬇️ Downloading New: {title}")
     
     file_name = f"{video_id}.mp3"
     
-    # 🔥 UPDATED SETTINGS (Size aur Speed ke liye)
+    # 🔥 UPDATED SETTINGS (Force Audio + Small Size)
     ydl_opts_down = {
         'format': 'bestaudio/best',
         'outtmpl': file_name,
@@ -117,28 +136,24 @@ async def play_song(query: str):
         'cookiefile': cookie_file,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'check_formats': False, # 🔥 WARNING FIX
+        'check_formats': False, 
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '128', # 🔥 128kbps (Best balance for Telegram)
+            'preferredquality': '128', # 3-5 MB File Size
         }],
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts_down) as ydl:
-            # Direct ID se download fast hota hai
             ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
         
-        # Verify File
         if not os.path.exists(file_name):
-             return {"status": "error", "message": "Download failed"}
+             return {"status": "error", "message": "Download failed (File not created)"}
 
-        # Upload
         print("☁️ Uploading to Catbox...")
         catbox_link = upload_to_catbox(file_name)
         
-        # Cleanup (Local file delete)
         if os.path.exists(file_name):
             os.remove(file_name)
 
