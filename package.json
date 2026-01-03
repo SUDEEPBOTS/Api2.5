@@ -1,10 +1,11 @@
 {
   "name": "sudeep-music-api",
   "version": "1.0.0",
-  "description": "Dummy file to trick Heroku into installing Node.js for yt-dlp",
+  "description": "Dummy Node.js",
   "main": "main.py",
   "scripts": {
-    "start": "echo 'Node.js installed!'"
+    "start": "echo 'Node.js is running'"
   },
   "dependencies": {}
 }
+
